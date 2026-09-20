@@ -296,7 +296,7 @@ mod tests {
             self.nodes[item].valuedouble
         }
 
-        fn valueint(&self, item: Self::Handle) -> i32 {
+        fn valueint(&self, _item: Self::Handle) -> i32 {
             0
         }
 
