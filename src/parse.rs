@@ -28,14 +28,15 @@ pub fn parse_hex4(input: &[u8]) -> u32 {
 }
 
 /// Skip bytes `<= 32`. If this walks to `length`, step back one byte (cJSON quirk).
+/// If `offset` is already at/past `length`, leave it (C returns immediately).
 pub fn skip_whitespace(input: &[u8], offset: &mut usize) {
-    if input.is_empty() {
+    if *offset >= input.len() {
         return;
     }
     while *offset < input.len() && input[*offset] <= 32 {
         *offset += 1;
     }
-    if *offset == input.len() && !input.is_empty() {
+    if *offset == input.len() {
         *offset -= 1;
     }
 }
@@ -879,6 +880,11 @@ mod tests {
         let mut offset = 0usize;
         skip_whitespace(b"", &mut offset);
         assert_eq!(offset, 0);
+
+        let mut offset = 3usize;
+        skip_whitespace(b"   ", &mut offset);
+        // Already at length: C does not step back.
+        assert_eq!(offset, 3);
     }
 
     /// Bytes `parse_number` copies before `strtod`: digits, `+`, `-`, `e`, `E`, `.`
