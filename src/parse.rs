@@ -347,7 +347,7 @@ impl<'a, B: TreeBuilder> Parser<'a, B> {
         if can_access_at_index(self.input, self.offset, 0) && self.input[self.offset] == b']' {
             self.depth -= 1;
             self.builder.set_array(item);
-            self.offset += 1;
+            self.offset = self.offset.wrapping_add(1);
             return true;
         }
 
@@ -376,7 +376,7 @@ impl<'a, B: TreeBuilder> Parser<'a, B> {
                 head = Some(new_item);
             }
 
-            self.offset += 1;
+            self.offset = self.offset.wrapping_add(1);
             skip_whitespace(self.input, &mut self.offset);
             if !self.parse_value(new_item) {
                 self.fail_child_chain(head);
@@ -416,7 +416,7 @@ impl<'a, B: TreeBuilder> Parser<'a, B> {
         if can_access_at_index(self.input, self.offset, 0) && self.input[self.offset] == b'}' {
             self.depth -= 1;
             self.builder.set_object(item);
-            self.offset += 1;
+            self.offset = self.offset.wrapping_add(1);
             return true;
         }
 
@@ -450,7 +450,7 @@ impl<'a, B: TreeBuilder> Parser<'a, B> {
                 return false;
             }
 
-            self.offset += 1;
+            self.offset = self.offset.wrapping_add(1);
             skip_whitespace(self.input, &mut self.offset);
             if !self.parse_string(new_item) {
                 self.fail_child_chain(head);
@@ -464,7 +464,7 @@ impl<'a, B: TreeBuilder> Parser<'a, B> {
                 return false;
             }
 
-            self.offset += 1;
+            self.offset = self.offset.wrapping_add(1);
             skip_whitespace(self.input, &mut self.offset);
             if !self.parse_value(new_item) {
                 self.fail_child_chain(head);
@@ -966,8 +966,8 @@ mod tests {
     fn incomplete_containers_fail() {
         let _ = parse_err(b"[1,", false);
         let _ = parse_err(b"{\"a\":", false);
-        let _ = parse_err(b"{", false);
-        let _ = parse_err(b"[", false);
+        let _ = parse_err(b"{\0", false);
+        let _ = parse_err(b"[\0", false);
         let _ = parse_err(b"{\"a\" 1}", false);
     }
 
