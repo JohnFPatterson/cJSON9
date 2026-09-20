@@ -39,8 +39,18 @@ if(ENABLE_CJSON_TEST)
     file(GLOB test_files "inputs/*")
     file(COPY ${test_files} DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/inputs/")
 
-    set(unity_tests
+    set(unity_public_tests
         parse_examples
+        parse_with_opts
+        compare_tests
+        cjson_add
+        readme_examples
+        minify_tests
+        print_value
+        misc_tests
+    )
+
+    set(unity_internal_tests
         parse_number
         parse_hex4
         parse_string
@@ -51,14 +61,17 @@ if(ENABLE_CJSON_TEST)
         print_number
         print_array
         print_object
-        print_value
-        misc_tests
-        parse_with_opts
-        compare_tests
-        cjson_add
-        readme_examples
-        minify_tests
     )
+
+    # Internal Unity tests compile cJSON.c statics (parse_number, print_string,
+    # skip_utf8_bom, ensure, global_hooks). The Rust cdylib does not export those.
+    # When ENABLE_RUST_CJSON, only public-API tests are built; they include
+    # cJSON.h (CJSON_PUBLIC_TESTS_ONLY) and link the imported rust library.
+    if(ENABLE_RUST_CJSON)
+        set(unity_tests ${unity_public_tests})
+    else()
+        set(unity_tests ${unity_public_tests} ${unity_internal_tests})
+    endif()
 
     option(ENABLE_VALGRIND OFF "Enable the valgrind memory checker for the tests.")
     if (ENABLE_VALGRIND)
@@ -77,6 +90,10 @@ if(ENABLE_CJSON_TEST)
             target_sources(${unity_test} PRIVATE unity_setup.c)
         endif()
         target_link_libraries("${unity_test}" "${CJSON_LIB}" unity)
+        if(ENABLE_RUST_CJSON)
+            target_compile_definitions("${unity_test}" PRIVATE CJSON_PUBLIC_TESTS_ONLY)
+            add_dependencies("${unity_test}" cjson_rust)
+        endif()
         if(MEMORYCHECK_COMMAND)
             add_test(NAME "${unity_test}"
                 COMMAND "${MEMORYCHECK_COMMAND}" ${MEMORYCHECK_COMMAND_OPTIONS} "${CMAKE_CURRENT_BINARY_DIR}/${unity_test}")

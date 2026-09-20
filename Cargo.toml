@@ -1,0 +1,24 @@
+[package]
+name = "cjson"
+version = "1.7.19"
+edition = "2021"
+license = "MIT"
+authors = ["Dave Gamble and cJSON contributors"]
+description = "Drop-in Rust port of cJSON 1.7.19 with a C ABI matching cJSON.h"
+repository = "https://github.com/DaveGamble/cJSON"
+publish = false
+
+[lib]
+name = "cjson"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+default = ["locales"]
+locales = []
+
+[dependencies]
+libc = "0.2"
+
+[profile.release]
+lto = true
+panic = "abort"
