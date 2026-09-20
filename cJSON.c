@@ -204,7 +204,7 @@ static unsigned char* cJSON_strdup(const unsigned char* string, const internal_h
     copy = (unsigned char*)hooks->allocate(length);
     if (copy == NULL)
     {
-        return NULL;
+        return 0;
     }
     memcpy(copy, string, length);
 
