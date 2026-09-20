@@ -23,7 +23,24 @@
 #ifndef CJSON_TESTS_COMMON_H
 #define CJSON_TESTS_COMMON_H
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <limits.h>
+
+#ifdef CJSON_PUBLIC_TESTS_ONLY
+/* Public-API tests (ENABLE_RUST_CJSON): link the rust cdylib/staticlib, do not compile cJSON.c statics. */
+#include "../cJSON.h"
+/* cJSON.c defines these for C89; cJSON.h does not. */
+#ifndef true
+#define true ((cJSON_bool)1)
+#endif
+#ifndef false
+#define false ((cJSON_bool)0)
+#endif
+#else
 #include "../cJSON.c"
+#endif
 
 void reset(cJSON *item);
 void reset(cJSON *item) {
@@ -33,11 +50,19 @@ void reset(cJSON *item) {
     }
     if ((item->valuestring != NULL) && !(item->type & cJSON_IsReference))
     {
+#ifdef CJSON_PUBLIC_TESTS_ONLY
+        cJSON_free(item->valuestring);
+#else
         global_hooks.deallocate(item->valuestring);
+#endif
     }
     if ((item->string != NULL) && !(item->type & cJSON_StringIsConst))
     {
+#ifdef CJSON_PUBLIC_TESTS_ONLY
+        cJSON_free(item->string);
+#else
         global_hooks.deallocate(item->string);
+#endif
     }
 
     memset(item, 0, sizeof(cJSON));

@@ -69,3 +69,51 @@ Spec: `cJSON.c` and the Unity tests. Version string stays `1.7.19`.
 | tests | `tests/common.h`, `tests/CMakeLists.txt`, `CMakeLists.txt`, `tests/rust_*.c` if needed, `src/parse.rs`/`print.rs` tests only if adding `#[cfg(test)]` modules without rewriting logic |
 
 Do not expand `unsafe` outside `src/shim/`.
+
+## Tests
+
+### Rust (`cargo test`)
+
+```text
+cargo test
+```
+
+Must pass on the current stubs. `src/parse.rs` unit tests cover `parse_hex4`, UTF-8 BOM skip (`offset + 4 < length`, only at offset 0), whitespace (`byte <= 32`, step back at end), and the number-token charset (`0-9`, `+`, `-`, `e`, `E`, `.`).
+
+Golden tests that need a working parser/printer/minifier live in `tests/abi_golden.rs` and are `#[ignore]` (string escapes, minify comments, number tokens, BOM via `cJSON_Parse`, print round-trip). Un-ignore them with `cargo test -- --ignored` once parse/print/minify land.
+
+### Differential print bytes vs C oracle
+
+`tests/differential.rs` compares (in future) `cJSON_PrintUnformatted` bytes against the original C library. It is a no-op unless `CJSON_ORACLE` is set:
+
+```text
+cmake -S . -B build -DENABLE_RUST_CJSON=ON
+cmake --build build --target cjson_oracle
+CJSON_ORACLE=build/libcjson_oracle.a cargo test --test differential
+```
+
+### CMake Unity tests with the Rust drop-in
+
+```text
+cmake -S . -B build -DENABLE_RUST_CJSON=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+`ENABLE_RUST_CJSON` defaults **ON** if `cargo` is found, else **OFF**. Public Unity tests (`parse_examples`, `parse_with_opts`, `compare_tests`, `cjson_add`, `readme_examples`, `minify_tests`, `print_value`, `misc_tests`) are compiled with `CJSON_PUBLIC_TESTS_ONLY` (include `cJSON.h` only, link `target/release/libcjson.so` or `.a`). Internal Unity tests that call `parse_number` / `print_string` / `ensure` / `global_hooks` are skipped — those statics are **not** exported from the Rust cdylib.
+
+`print_value.c` uses public `cJSON_Parse` + `cJSON_PrintUnformatted` under `CJSON_PUBLIC_TESTS_ONLY`. `misc_tests.c` keeps public-API cases and rewrites BOM checks through `cJSON_Parse`.
+
+### C-only build (must keep working)
+
+```text
+cmake -S . -B build -DENABLE_RUST_CJSON=OFF
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+This compiles `cJSON.c` as `libcjson` exactly as upstream. Utils stay off by default (`ENABLE_CJSON_UTILS=OFF`).
+
+### Fuzzing
+
+AFL is not rewritten. `fuzzing/cjson_read_fuzzer.c` can link the Rust staticlib (`target/release/libcjson.a`) later the same way other C targets do when `ENABLE_RUST_CJSON=ON`.

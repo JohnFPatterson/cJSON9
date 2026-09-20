@@ -391,8 +391,8 @@ static void cjson_functions_should_not_crash_with_null_pointers(void)
     cJSON *corruptedString = cJSON_CreateString("corrupted");
     struct cJSON *originalPrev;
 
-    add_item_to_array(array, item1);
-    add_item_to_array(array, item2);
+    cJSON_AddItemToArray(array, item1);
+    cJSON_AddItemToArray(array, item2);
 
     originalPrev = item2->prev;
     item2->prev = NULL;
@@ -507,13 +507,16 @@ static void cjson_set_valuestring_should_return_null_if_strings_overlap(void)
     cJSON_Delete(obj);
 }
 
+#ifndef CJSON_PUBLIC_TESTS_ONLY
 static void *CJSON_CDECL failing_realloc(void *pointer, size_t size)
 {
     (void)size;
     (void)pointer;
     return NULL;
 }
+#endif
 
+#ifndef CJSON_PUBLIC_TESTS_ONLY
 static void ensure_should_fail_on_failed_realloc(void)
 {
     printbuffer buffer = {NULL, 10, 0, 0, false, false, {&malloc, &free, &failing_realloc}};
@@ -546,6 +549,22 @@ static void skip_utf8_bom_should_not_skip_bom_if_not_at_beginning(void)
 
     TEST_ASSERT_NULL(skip_utf8_bom(&buffer));
 }
+#else
+/* Public Parse: UTF-8 BOM is skipped only at offset 0 (cJSON quirk). */
+static void skip_utf8_bom_should_skip_bom(void)
+{
+    cJSON *item = cJSON_Parse("\xEF\xBB\xBF{}");
+    TEST_ASSERT_NOT_NULL_MESSAGE(item, "BOM at offset 0 should be skipped.");
+    TEST_ASSERT_TRUE(cJSON_IsObject(item));
+    cJSON_Delete(item);
+}
+
+static void skip_utf8_bom_should_not_skip_bom_if_not_at_beginning(void)
+{
+    /* skip_utf8_bom runs before whitespace skip; BOM not at offset 0 is not consumed. */
+    TEST_ASSERT_NULL(cJSON_Parse(" \xEF\xBB\xBF{}"));
+}
+#endif
 
 static void cjson_get_string_value_should_get_a_string(void)
 {
@@ -641,7 +660,9 @@ static void cjson_add_item_to_object_should_not_use_after_free_when_string_is_al
 {
     cJSON *object = cJSON_CreateObject();
     cJSON *number = cJSON_CreateNumber(42);
-    char *name = (char *)cJSON_strdup((const unsigned char *)"number", &global_hooks);
+    char *name = (char *)cJSON_malloc(sizeof("number"));
+    TEST_ASSERT_NOT_NULL(name);
+    memcpy(name, "number", sizeof("number"));
 
     TEST_ASSERT_NOT_NULL(object);
     TEST_ASSERT_NOT_NULL(number);
@@ -819,7 +840,9 @@ int CJSON_CDECL main(void)
     RUN_TEST(cjson_replace_item_in_object_should_preserve_name);
     RUN_TEST(cjson_functions_should_not_crash_with_null_pointers);
     RUN_TEST(cjson_set_valuestring_should_return_null_if_strings_overlap);
+#ifndef CJSON_PUBLIC_TESTS_ONLY
     RUN_TEST(ensure_should_fail_on_failed_realloc);
+#endif
     RUN_TEST(skip_utf8_bom_should_skip_bom);
     RUN_TEST(skip_utf8_bom_should_not_skip_bom_if_not_at_beginning);
     RUN_TEST(cjson_get_string_value_should_get_a_string);

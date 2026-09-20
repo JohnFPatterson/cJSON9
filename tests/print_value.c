@@ -28,6 +28,23 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
+#ifdef CJSON_PUBLIC_TESTS_ONLY
+static void assert_print_value(const char *input)
+{
+    char *printed = NULL;
+    cJSON *item = NULL;
+
+    item = cJSON_Parse(input);
+    TEST_ASSERT_NOT_NULL_MESSAGE(item, "Failed to parse value.");
+
+    printed = cJSON_PrintUnformatted(item);
+    TEST_ASSERT_NOT_NULL_MESSAGE(printed, "Failed to print value.");
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(input, printed, "Printed value is not as expected.");
+
+    cJSON_free(printed);
+    cJSON_Delete(item);
+}
+#else
 static void assert_print_value(const char *input)
 {
     unsigned char printed[1024];
@@ -53,6 +70,7 @@ static void assert_print_value(const char *input)
 
     reset(item);
 }
+#endif
 
 static void print_value_should_print_null(void)
 {

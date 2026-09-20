@@ -119,24 +119,126 @@ option(CJSON_OVERRIDE_BUILD_SHARED_LIBS "Override BUILD_SHARED_LIBS with CJSON_B
 option(CJSON_BUILD_SHARED_LIBS "Overrides BUILD_SHARED_LIBS if CJSON_OVERRIDE_BUILD_SHARED_LIBS is enabled" ON)
 option(ENABLE_CJSON_VERSION_SO "Enables cJSON so version" ON)
 
+# Rust drop-in: cmake -DENABLE_RUST_CJSON=ON (default when cargo is on PATH)
+#   cargo build --release  ->  target/release/libcjson.so and libcjson.a
+#   cJSON.c is still compiled as cjson_oracle for optional differential tests.
+#   ENABLE_RUST_CJSON=OFF compiles cJSON.c as libcjson, same as upstream.
+#   cargo test  # Rust unit tests (hex4/BOM pass; parse/print golden tests are ignored)
+find_program(CARGO_EXECUTABLE cargo)
+if(CARGO_EXECUTABLE)
+    set(_ENABLE_RUST_CJSON_DEFAULT ON)
+else()
+    set(_ENABLE_RUST_CJSON_DEFAULT OFF)
+endif()
+option(ENABLE_RUST_CJSON
+    "Build libcjson from the Rust crate (cargo build --release) instead of cJSON.c"
+    ${_ENABLE_RUST_CJSON_DEFAULT})
+
 if ((CJSON_OVERRIDE_BUILD_SHARED_LIBS AND CJSON_BUILD_SHARED_LIBS) OR ((NOT CJSON_OVERRIDE_BUILD_SHARED_LIBS) AND BUILD_SHARED_LIBS))
     set(CJSON_LIBRARY_TYPE SHARED)
 else()
     set(CJSON_LIBRARY_TYPE STATIC)
 endif()
 
+if(ENABLE_RUST_CJSON)
+    if(NOT CARGO_EXECUTABLE)
+        message(FATAL_ERROR "ENABLE_RUST_CJSON=ON requires cargo on PATH. Use -DENABLE_RUST_CJSON=OFF for the original C-only build.")
+    endif()
 
-if (NOT BUILD_SHARED_AND_STATIC_LIBS)
-    add_library("${CJSON_LIB}" "${CJSON_LIBRARY_TYPE}" "${HEADERS}" "${SOURCES}")
+    if(DEFINED ENV{CARGO_TARGET_DIR} AND NOT "$ENV{CARGO_TARGET_DIR}" STREQUAL "")
+        set(CJSON_RUST_TARGET_DIR "$ENV{CARGO_TARGET_DIR}/release")
+    else()
+        set(CJSON_RUST_TARGET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/target/release")
+    endif()
+
+    if(WIN32)
+        set(CJSON_RUST_STATIC_LIB "${CJSON_RUST_TARGET_DIR}/cjson.lib")
+        set(CJSON_RUST_SHARED_LIB "${CJSON_RUST_TARGET_DIR}/cjson.dll")
+        set(CJSON_RUST_INSTALL_SHARED "cjson.dll")
+        set(CJSON_RUST_INSTALL_STATIC "cjson.lib")
+    elseif(APPLE)
+        set(CJSON_RUST_STATIC_LIB "${CJSON_RUST_TARGET_DIR}/libcjson.a")
+        set(CJSON_RUST_SHARED_LIB "${CJSON_RUST_TARGET_DIR}/libcjson.dylib")
+        set(CJSON_RUST_INSTALL_SHARED "libcjson.dylib")
+        set(CJSON_RUST_INSTALL_STATIC "libcjson.a")
+    else()
+        set(CJSON_RUST_STATIC_LIB "${CJSON_RUST_TARGET_DIR}/libcjson.a")
+        set(CJSON_RUST_SHARED_LIB "${CJSON_RUST_TARGET_DIR}/libcjson.so")
+        set(CJSON_RUST_INSTALL_SHARED "libcjson.so")
+        set(CJSON_RUST_INSTALL_STATIC "libcjson.a")
+    endif()
+
+    add_custom_target(cjson_rust ALL
+        COMMAND "${CARGO_EXECUTABLE}" build --release --manifest-path "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        BYPRODUCTS "${CJSON_RUST_STATIC_LIB}" "${CJSON_RUST_SHARED_LIB}"
+        COMMENT "Building Rust cJSON drop-in (cargo build --release)"
+        VERBATIM
+        USES_TERMINAL
+    )
+    if(UNIX AND NOT APPLE)
+        add_custom_command(TARGET cjson_rust POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E create_symlink "libcjson.so" "${CJSON_RUST_TARGET_DIR}/libcjson.so.1"
+            COMMENT "Symlink libcjson.so.1 -> libcjson.so (cdylib soname)"
+        )
+    endif()
+
+    if(NOT BUILD_SHARED_AND_STATIC_LIBS)
+        add_library("${CJSON_LIB}" "${CJSON_LIBRARY_TYPE}" IMPORTED GLOBAL)
+        if(CJSON_LIBRARY_TYPE STREQUAL "STATIC")
+            set_target_properties("${CJSON_LIB}" PROPERTIES IMPORTED_LOCATION "${CJSON_RUST_STATIC_LIB}")
+        else()
+            set_target_properties("${CJSON_LIB}" PROPERTIES IMPORTED_LOCATION "${CJSON_RUST_SHARED_LIB}")
+        endif()
+    else()
+        add_library("${CJSON_LIB}" SHARED IMPORTED GLOBAL)
+        set_target_properties("${CJSON_LIB}" PROPERTIES IMPORTED_LOCATION "${CJSON_RUST_SHARED_LIB}")
+        add_library("${CJSON_LIB}-static" STATIC IMPORTED GLOBAL)
+        set_target_properties("${CJSON_LIB}-static" PROPERTIES
+            IMPORTED_LOCATION "${CJSON_RUST_STATIC_LIB}"
+            OUTPUT_NAME "${CJSON_LIB}"
+            PREFIX "lib")
+        add_dependencies("${CJSON_LIB}-static" cjson_rust)
+    endif()
+
+    set_target_properties("${CJSON_LIB}" PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}")
+    add_dependencies("${CJSON_LIB}" cjson_rust)
+
+    if(NOT WIN32)
+        find_package(Threads REQUIRED)
+        set(_rust_static_syslibs Threads::Threads ${CMAKE_DL_LIBS} m)
+        if(CJSON_LIBRARY_TYPE STREQUAL "STATIC")
+            set_property(TARGET "${CJSON_LIB}" APPEND PROPERTY INTERFACE_LINK_LIBRARIES ${_rust_static_syslibs})
+        endif()
+        if(BUILD_SHARED_AND_STATIC_LIBS)
+            set_property(TARGET "${CJSON_LIB}-static" APPEND PROPERTY
+                INTERFACE_LINK_LIBRARIES ${_rust_static_syslibs})
+        endif()
+    endif()
+
+    # So test binaries find the cdylib before install.
+    set(CMAKE_BUILD_RPATH "${CJSON_RUST_TARGET_DIR}")
+
+    # Original C implementation kept as an oracle (do not delete cJSON.c).
+    add_library(cjson_oracle STATIC "${HEADERS}" "${SOURCES}")
+    if(NOT WIN32)
+        target_link_libraries(cjson_oracle m)
+    endif()
+    target_include_directories(cjson_oracle PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 else()
-    # See https://cmake.org/Wiki/CMake_FAQ#How_do_I_make_my_shared_and_static_libraries_have_the_same_root_name.2C_but_different_suffixes.3F
-    add_library("${CJSON_LIB}" SHARED "${HEADERS}" "${SOURCES}")
-    add_library("${CJSON_LIB}-static" STATIC "${HEADERS}" "${SOURCES}")
-    set_target_properties("${CJSON_LIB}-static" PROPERTIES OUTPUT_NAME "${CJSON_LIB}")
-    set_target_properties("${CJSON_LIB}-static" PROPERTIES PREFIX "lib")
-endif()
-if (NOT WIN32)
-    target_link_libraries("${CJSON_LIB}" m)
+    if (NOT BUILD_SHARED_AND_STATIC_LIBS)
+        add_library("${CJSON_LIB}" "${CJSON_LIBRARY_TYPE}" "${HEADERS}" "${SOURCES}")
+    else()
+        # See https://cmake.org/Wiki/CMake_FAQ#How_do_I_make_my_shared_and_static_libraries_have_the_same_root_name.2C_but_different_suffixes.3F
+        add_library("${CJSON_LIB}" SHARED "${HEADERS}" "${SOURCES}")
+        add_library("${CJSON_LIB}-static" STATIC "${HEADERS}" "${SOURCES}")
+        set_target_properties("${CJSON_LIB}-static" PROPERTIES OUTPUT_NAME "${CJSON_LIB}")
+        set_target_properties("${CJSON_LIB}-static" PROPERTIES PREFIX "lib")
+    endif()
+    if (NOT WIN32)
+        target_link_libraries("${CJSON_LIB}" m)
+    endif()
 endif()
 
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/library_config/libcjson.pc.in"
@@ -144,30 +246,59 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/library_config/libcjson.pc.in"
 
 install(FILES cJSON.h DESTINATION "${CMAKE_INSTALL_FULL_INCLUDEDIR}/cjson")
 install (FILES "${CMAKE_CURRENT_BINARY_DIR}/libcjson.pc" DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}/pkgconfig")
-install(TARGETS "${CJSON_LIB}"
-    EXPORT "${CJSON_LIB}"
-    ARCHIVE DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}"
-    LIBRARY DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}"
-    RUNTIME DESTINATION "${CMAKE_INSTALL_FULL_BINDIR}"
-    INCLUDES DESTINATION "${CMAKE_INSTALL_FULL_INCLUDEDIR}"
-)
-if (BUILD_SHARED_AND_STATIC_LIBS)
-    install(TARGETS "${CJSON_LIB}-static"
-    EXPORT "${CJSON_LIB}" 
-    ARCHIVE DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}"
-    INCLUDES DESTINATION "${CMAKE_INSTALL_FULL_INCLUDEDIR}"
-)
+if(ENABLE_RUST_CJSON)
+    # IMPORTED rust artifacts: install the files cargo produced. Header is still cJSON.h.
+    if(CJSON_LIBRARY_TYPE STREQUAL "SHARED")
+        install(FILES "${CJSON_RUST_SHARED_LIB}" DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}")
+        if(UNIX AND NOT APPLE)
+            install(FILES "${CJSON_RUST_TARGET_DIR}/libcjson.so.1" DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}" OPTIONAL)
+        endif()
+        set(_CJSON_RUST_EXPORTED_LOCATION "${CMAKE_INSTALL_FULL_LIBDIR}/${CJSON_RUST_INSTALL_SHARED}")
+    else()
+        install(FILES "${CJSON_RUST_STATIC_LIB}" DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}")
+        set(_CJSON_RUST_EXPORTED_LOCATION "${CMAKE_INSTALL_FULL_LIBDIR}/${CJSON_RUST_INSTALL_STATIC}")
+    endif()
+    if(BUILD_SHARED_AND_STATIC_LIBS)
+        install(FILES "${CJSON_RUST_STATIC_LIB}" DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}")
+    endif()
+    if(ENABLE_TARGET_EXPORT)
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/cjson.cmake"
+"if(NOT TARGET cjson)
+  add_library(cjson ${CJSON_LIBRARY_TYPE} IMPORTED)
+  set_target_properties(cjson PROPERTIES
+    IMPORTED_LOCATION \"${_CJSON_RUST_EXPORTED_LOCATION}\"
+    INTERFACE_INCLUDE_DIRECTORIES \"${CMAKE_INSTALL_FULL_INCLUDEDIR};${CMAKE_INSTALL_FULL_INCLUDEDIR}/cjson\")
 endif()
-if(ENABLE_TARGET_EXPORT)
-    # export library information for CMake projects
-    install(EXPORT "${CJSON_LIB}" DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}/cmake/cJSON")
-endif()
+")
+        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/cjson.cmake"
+            DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}/cmake/cJSON")
+    endif()
+else()
+    install(TARGETS "${CJSON_LIB}"
+        EXPORT "${CJSON_LIB}"
+        ARCHIVE DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}"
+        LIBRARY DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}"
+        RUNTIME DESTINATION "${CMAKE_INSTALL_FULL_BINDIR}"
+        INCLUDES DESTINATION "${CMAKE_INSTALL_FULL_INCLUDEDIR}"
+    )
+    if (BUILD_SHARED_AND_STATIC_LIBS)
+        install(TARGETS "${CJSON_LIB}-static"
+        EXPORT "${CJSON_LIB}"
+        ARCHIVE DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}"
+        INCLUDES DESTINATION "${CMAKE_INSTALL_FULL_INCLUDEDIR}"
+    )
+    endif()
+    if(ENABLE_TARGET_EXPORT)
+        # export library information for CMake projects
+        install(EXPORT "${CJSON_LIB}" DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}/cmake/cJSON")
+    endif()
 
-if(ENABLE_CJSON_VERSION_SO)
-    set_target_properties("${CJSON_LIB}"
-        PROPERTIES
-            SOVERSION "${CJSON_VERSION_SO}"
-            VERSION "${PROJECT_VERSION}")
+    if(ENABLE_CJSON_VERSION_SO)
+        set_target_properties("${CJSON_LIB}"
+            PROPERTIES
+                SOVERSION "${CJSON_VERSION_SO}"
+                VERSION "${PROJECT_VERSION}")
+    endif()
 endif()
 
 #cJSON_Utils
@@ -277,3 +408,18 @@ endif()
 
 add_subdirectory(tests)
 add_subdirectory(fuzzing)
+
+# Fuzzing is unchanged (AFL not rewritten). fuzzing/cjson_read_fuzzer.c can
+# link the Rust staticlib (target/release/libcjson.a) later the same way
+# cJSON_test does when ENABLE_RUST_CJSON is ON.
+if(ENABLE_RUST_CJSON)
+    if(TARGET "${TEST_CJSON}")
+        add_dependencies("${TEST_CJSON}" cjson_rust)
+    endif()
+    if(TARGET fuzz_main)
+        add_dependencies(fuzz_main cjson_rust)
+    endif()
+    if(TARGET afl-main)
+        add_dependencies(afl-main cjson_rust)
+    endif()
+endif()
