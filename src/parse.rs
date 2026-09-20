@@ -489,11 +489,11 @@ impl<'a, B: TreeBuilder> Parser<'a, B> {
         true
     }
 
-    /// cJSON `cJSON_Delete(head)` on array/object failure.
+    /// cJSON `cJSON_Delete(head)` on array/object failure. Children are already
+    /// attached via `append_child`, so `parse` deleting the root frees the chain
+    /// (C delays `item->child = head` until success, which we cannot do).
     fn fail_child_chain(&mut self, head: Option<B::Handle>) {
-        if let Some(head) = head {
-            self.builder.delete(head);
-        }
+        let _ = head;
     }
 }
 
