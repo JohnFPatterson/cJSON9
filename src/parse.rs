@@ -86,4 +86,72 @@ mod tests {
         assert_eq!(parse_hex4(b"0000"), 0);
         assert_eq!(parse_hex4(b"ffff"), 0xFFFF);
     }
+
+    #[test]
+    fn hex4_mixed_case_and_invalid() {
+        assert_eq!(parse_hex4(b"bEeF"), 0xBEEF);
+        assert_eq!(parse_hex4(b"BeeF"), 0xBEEF);
+        // Invalid digit yields 0, same as C (does not return a partial value).
+        assert_eq!(parse_hex4(b"gggg"), 0);
+        assert_eq!(parse_hex4(b"abcg"), 0);
+        // Fewer than 4 bytes: 0 (C would read past the pointer).
+        assert_eq!(parse_hex4(b"abc"), 0);
+        assert_eq!(parse_hex4(b""), 0);
+    }
+
+    #[test]
+    fn skip_utf8_bom_only_at_offset_zero_and_needs_five_bytes() {
+        // C `can_access_at_index(..., 4)` is `offset + 4 < length`.
+        let mut offset = 0usize;
+        let with_room = [0xEF, 0xBB, 0xBF, b'{', b'}', 0];
+        assert!(skip_utf8_bom(&with_room, &mut offset));
+        assert_eq!(offset, 3);
+
+        let mut offset = 0usize;
+        let too_short = [0xEF, 0xBB, 0xBF, b'{']; // length 4: 0+4 < 4 is false
+        assert!(skip_utf8_bom(&too_short, &mut offset));
+        assert_eq!(offset, 0);
+
+        let mut offset = 1usize;
+        let prefixed = [b' ', 0xEF, 0xBB, 0xBF, b'{', b'}'];
+        assert!(!skip_utf8_bom(&prefixed, &mut offset));
+        assert_eq!(offset, 1);
+    }
+
+    #[test]
+    fn skip_whitespace_bytes_le_32_and_step_back_at_end() {
+        let mut offset = 0usize;
+        skip_whitespace(b" \t\n\r{}", &mut offset);
+        assert_eq!(offset, 4);
+
+        let mut offset = 0usize;
+        skip_whitespace(b"   ", &mut offset);
+        // Walked to length, then stepped back one (cJSON quirk).
+        assert_eq!(offset, 2);
+
+        let mut offset = 0usize;
+        skip_whitespace(b"", &mut offset);
+        assert_eq!(offset, 0);
+    }
+
+    /// Bytes `parse_number` copies before `strtod`: digits, `+`, `-`, `e`, `E`, `.`
+    const NUMBER_TOKEN_CHARSET: &[u8] = b"0123456789+-eE.";
+
+    #[test]
+    fn number_token_charset_is_digits_sign_exp_dot() {
+        assert_eq!(NUMBER_TOKEN_CHARSET.len(), 15);
+        for b in 0u8..=255 {
+            let allowed = NUMBER_TOKEN_CHARSET.contains(&b);
+            let expected = matches!(b, b'0'..=b'9' | b'+' | b'-' | b'e' | b'E' | b'.');
+            assert_eq!(allowed, expected, "byte {b:#04x}");
+        }
+    }
+
+    #[test]
+    #[ignore = "requires parse() implementation"]
+    fn parse_number_token_then_stops_on_other_bytes() {
+        // Trailing junk is OK unless require_null_terminated. "1.5e+10," should
+        // parse a number; "x1" should fail. Full assertions live in tests/abi_golden.rs.
+        let _ = NUMBER_TOKEN_CHARSET;
+    }
 }
