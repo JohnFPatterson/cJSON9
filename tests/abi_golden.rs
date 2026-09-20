@@ -129,7 +129,6 @@ fn print_unformatted_roundtrips_literals() {
 }
 
 #[test]
-#[ignore = "requires minify_in_place implementation"]
 fn minify_strips_line_and_block_comments() {
     let mut line = CString::new("{// this is {} \"some kind\" of [] comment /*, don't you see\n}")
         .unwrap()
@@ -147,7 +146,6 @@ fn minify_strips_line_and_block_comments() {
 }
 
 #[test]
-#[ignore = "requires minify_in_place implementation"]
 fn minify_preserves_string_contents_and_unclosed_block_comment_is_empty() {
     let original = r#""this is a string \" \t bla""#;
     let mut s = CString::new(original).unwrap().into_bytes_with_nul();

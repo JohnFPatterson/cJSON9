@@ -80,7 +80,7 @@ cargo test
 
 Must pass on the current stubs. `src/parse.rs` unit tests cover `parse_hex4`, UTF-8 BOM skip (`offset + 4 < length`, only at offset 0), whitespace (`byte <= 32`, step back at end), and the number-token charset (`0-9`, `+`, `-`, `e`, `E`, `.`).
 
-Golden tests that need a working parser/printer/minifier live in `tests/abi_golden.rs` and are `#[ignore]` (string escapes, minify comments, number tokens, BOM via `cJSON_Parse`, print round-trip). Un-ignore them with `cargo test -- --ignored` once parse/print/minify land.
+Golden tests that need a working parser live in `tests/abi_golden.rs` and are `#[ignore]` (string escapes, number tokens, BOM via `cJSON_Parse`, print round-trip). Minify goldens in that file are enabled. Un-ignore the rest with `cargo test -- --ignored` once parse lands.
 
 ### Differential print bytes vs C oracle
 
