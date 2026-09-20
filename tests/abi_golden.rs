@@ -1,7 +1,4 @@
 //! Golden tests against the public C ABI (`cJSON.h`).
-//!
-//! These compile today and `#[ignore]` until `parse` / `print` / `minify` land.
-//! Run with `cargo test -- --ignored` once those modules are implemented.
 
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
@@ -41,7 +38,6 @@ unsafe fn take_c_string(ptr: *mut c_char) -> String {
 }
 
 #[test]
-#[ignore = "requires parse() implementation"]
 fn parse_string_escapes_quote_backslash_slash_and_controls() {
     let item = parse(r#""\"\\\/\b\f\n\r\t""#);
     assert!(!item.is_null(), "parse string with JSON escapes");
@@ -56,7 +52,6 @@ fn parse_string_escapes_quote_backslash_slash_and_controls() {
 }
 
 #[test]
-#[ignore = "requires parse() implementation"]
 fn parse_unicode_escape_and_surrogate_pair() {
     let euro = parse(r#""\u20AC""#);
     assert!(!euro.is_null());
@@ -76,14 +71,12 @@ fn parse_unicode_escape_and_surrogate_pair() {
 }
 
 #[test]
-#[ignore = "requires parse() implementation"]
 fn parse_invalid_backslash_and_truncated_escape_fail() {
     assert!(parse(r#""\e""#).is_null());
     assert!(parse("\"000000000000000000\\").is_null());
 }
 
 #[test]
-#[ignore = "requires parse() implementation"]
 fn parse_number_token_charset_digits_sign_exp_dot() {
     let item = parse("1.5e+10");
     assert!(!item.is_null());
@@ -100,7 +93,6 @@ fn parse_number_token_charset_digits_sign_exp_dot() {
 }
 
 #[test]
-#[ignore = "requires parse() implementation"]
 fn parse_skips_utf8_bom_only_at_offset_zero() {
     let with_bom = parse("\u{feff}{}");
     assert!(!with_bom.is_null());
@@ -115,7 +107,6 @@ fn parse_skips_utf8_bom_only_at_offset_zero() {
 }
 
 #[test]
-#[ignore = "requires print() implementation"]
 fn print_unformatted_roundtrips_literals() {
     for input in ["null", "true", "false", "1.5", "\"hello\"", "[]", "{}"] {
         let item = parse(input);
